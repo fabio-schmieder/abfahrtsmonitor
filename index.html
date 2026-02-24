@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Abfahrtsmonitor</title>
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚍</text></svg>">
 <style>
   :root {
@@ -171,11 +169,61 @@
 const API='https://transport.opendata.ch/v1';
 let currentStation=null,allLines=[],enabledLines=new Set(),refreshInterval=null,searchTimeout=null,countdown=30;
 
-function parseURL(){const p=new URLSearchParams(location.search),s=p.get('stop');if(!s)return null;return{stopId:s,stopName:p.get('name')||s,lines:p.get('lines')?p.get('lines').split(',').map(decodeURIComponent):null,monitorMode:p.get('mode')==='monitor'}}
-function updateURL(){if(!currentStation)return;const p=new URLSearchParams();p.set('stop',currentStation.id);p.set('name',currentStation.name);if(enabledLines.size>0&&enabledLines.size<allLines.length)p.set('lines',Array.from(enabledLines).map(encodeURIComponent).join(','));const u=location.origin+location.pathname+'?'+p;history.replaceState({},'',u);showURLHint(u)}
-function showURLHint(u){const m=u+'&mode=monitor',l=document.getElementById('urlLink');l.href=m;l.textContent=m.length>90?m.substring(0,87)+'...':m;document.getElementById('urlHint').classList.add('show');document.getElementById('editLink').href=u}
-document.getElementById('copyBtn').addEventListener('click',()=>{navigator.clipboard.writeText(document.getElementById('urlLink').href).then(()=>{const b=document.getElementById('copyBtn');b.textContent='✓ Kopiert';setTimeout(()=>b.textContent='Kopieren',2000)})});
+// ── Hash-based URL State ──
+function parseHash(){
+  const h=location.hash.replace(/^#/,'');
+  if(!h)return null;
+  const p=new URLSearchParams(h);
+  const s=p.get('stop');
+  if(!s)return null;
+  return{
+    stopId:s,
+    stopName:p.get('name')||s,
+    lines:p.get('lines')?p.get('lines').split(',').map(decodeURIComponent):null,
+    monitorMode:p.get('mode')==='monitor'
+  };
+}
 
+function buildHash(includeMode){
+  if(!currentStation)return'';
+  const p=new URLSearchParams();
+  p.set('stop',currentStation.id);
+  p.set('name',currentStation.name);
+  if(enabledLines.size>0&&enabledLines.size<allLines.length){
+    p.set('lines',Array.from(enabledLines).map(encodeURIComponent).join(','));
+  }
+  if(includeMode)p.set('mode','monitor');
+  return p.toString();
+}
+
+function updateURL(){
+  if(!currentStation)return;
+  const hash=buildHash(false);
+  location.hash=hash;
+  showURLHint();
+}
+
+function showURLHint(){
+  const monitorHash=buildHash(true);
+  const monitorUrl=location.origin+location.pathname+'#'+monitorHash;
+  const editUrl=location.origin+location.pathname+'#'+buildHash(false);
+  const link=document.getElementById('urlLink');
+  link.href=monitorUrl;
+  link.textContent=monitorUrl.length>90?monitorUrl.substring(0,87)+'...':monitorUrl;
+  document.getElementById('urlHint').classList.add('show');
+  document.getElementById('editLink').href=editUrl;
+}
+
+document.getElementById('copyBtn').addEventListener('click',()=>{
+  const monitorUrl=location.origin+location.pathname+'#'+buildHash(true);
+  navigator.clipboard.writeText(monitorUrl).then(()=>{
+    const b=document.getElementById('copyBtn');
+    b.textContent='✓ Kopiert';
+    setTimeout(()=>b.textContent='Kopieren',2000);
+  });
+});
+
+// ── Search ──
 const searchInput=document.getElementById('searchInput'),searchResults=document.getElementById('searchResults');
 searchInput.addEventListener('input',()=>{clearTimeout(searchTimeout);const q=searchInput.value.trim();if(q.length<2){searchResults.classList.remove('show');return}searchTimeout=setTimeout(()=>fetchLoc(q),250)});
 searchInput.addEventListener('focus',()=>{if(searchResults.children.length)searchResults.classList.add('show')});
@@ -183,10 +231,64 @@ document.addEventListener('click',e=>{if(!e.target.closest('.search-section'))se
 
 async function fetchLoc(q){try{const r=await fetch(`${API}/locations?query=${encodeURIComponent(q)}&type=station`),d=await r.json();const s=(d.stations||[]).slice(0,8);searchResults.innerHTML=s.map(s=>`<div class="search-result" data-id="${s.id}" data-name="${esc(s.name)}">${esc(s.name)}</div>`).join('');searchResults.querySelectorAll('.search-result').forEach(el=>{el.addEventListener('click',()=>selectStation(el.dataset.id,el.dataset.name))});searchResults.classList.toggle('show',s.length>0)}catch(e){console.error(e)}}
 
-async function selectStation(id,name){currentStation={id,name};searchResults.classList.remove('show');searchInput.value='';document.getElementById('stationBar').classList.add('show');document.getElementById('stationName').textContent=name;document.getElementById('searchSection').style.display='none';await discoverLines()}
-document.getElementById('changeBtn').addEventListener('click',()=>{stopRefresh();currentStation=null;allLines=[];enabledLines.clear();document.getElementById('stationBar').classList.remove('show');document.getElementById('searchSection').style.display='';document.getElementById('filterPanel').classList.remove('show');document.getElementById('departuresSection').classList.remove('show');document.getElementById('footerBar').classList.remove('show');document.getElementById('urlHint').classList.remove('show');searchInput.focus();history.replaceState({},'',location.pathname)});
+// ── Station ──
+async function selectStation(id,name){
+  currentStation={id,name};
+  searchResults.classList.remove('show');
+  searchInput.value='';
+  document.getElementById('stationBar').classList.add('show');
+  document.getElementById('stationName').textContent=name;
+  document.getElementById('searchSection').style.display='none';
+  await discoverLines(null);
+}
 
-async function discoverLines(){const fl=document.getElementById('filterList');fl.innerHTML='<div class="state-message"><div class="loading-spinner"></div>Linien werden geladen...</div>';document.getElementById('filterPanel').classList.add('show');try{const r=await fetch(`${API}/stationboard?id=${currentStation.id}&limit=40`),d=await r.json(),map=new Map();(d.stationboard||[]).forEach(e=>{const cat=(e.category||'?').toLowerCase(),num=e.number||'',to=e.to||'?',key=`${cat}${num}-${to}`;if(!map.has(key))map.set(key,{key,category:e.category||'?',number:num,to})});allLines=Array.from(map.values()).sort((a,b)=>{const c=catOrd(a.category)-catOrd(b.category);if(c)return c;const na=parseInt(a.number)||999,nb=parseInt(b.number)||999;if(na!==nb)return na-nb;return a.to.localeCompare(b.to)});const us=parseURL();enabledLines=us?.lines?new Set(us.lines.filter(l=>allLines.some(al=>al.key===l))):new Set(allLines.map(l=>l.key));renderFilters();updateURL();startRefresh()}catch(e){fl.innerHTML='<div class="state-message">Fehler beim Laden</div>'}}
+document.getElementById('changeBtn').addEventListener('click',()=>{
+  stopRefresh();
+  currentStation=null;allLines=[];enabledLines.clear();
+  document.getElementById('stationBar').classList.remove('show');
+  document.getElementById('searchSection').style.display='';
+  document.getElementById('filterPanel').classList.remove('show');
+  document.getElementById('departuresSection').classList.remove('show');
+  document.getElementById('footerBar').classList.remove('show');
+  document.getElementById('urlHint').classList.remove('show');
+  searchInput.focus();
+  history.replaceState({},'',location.pathname);
+});
+
+// ── Line Discovery ──
+// urlLines: array of line keys from URL to restore, or null for "enable all"
+async function discoverLines(urlLines){
+  const fl=document.getElementById('filterList');
+  fl.innerHTML='<div class="state-message"><div class="loading-spinner"></div>Linien werden geladen...</div>';
+  document.getElementById('filterPanel').classList.add('show');
+  try{
+    const r=await fetch(`${API}/stationboard?id=${currentStation.id}&limit=40`);
+    const d=await r.json();
+    const map=new Map();
+    (d.stationboard||[]).forEach(e=>{
+      const cat=(e.category||'?').toLowerCase(),num=e.number||'',to=e.to||'?',key=`${cat}${num}-${to}`;
+      if(!map.has(key))map.set(key,{key,category:e.category||'?',number:num,to});
+    });
+    allLines=Array.from(map.values()).sort((a,b)=>{
+      const c=catOrd(a.category)-catOrd(b.category);
+      if(c)return c;
+      const na=parseInt(a.number)||999,nb=parseInt(b.number)||999;
+      if(na!==nb)return na-nb;
+      return a.to.localeCompare(b.to);
+    });
+
+    // Apply URL filters or enable all
+    if(urlLines){
+      enabledLines=new Set(urlLines.filter(l=>allLines.some(al=>al.key===l)));
+    }else{
+      enabledLines=new Set(allLines.map(l=>l.key));
+    }
+
+    renderFilters();
+    updateURL();
+    startRefresh();
+  }catch(e){fl.innerHTML='<div class="state-message">Fehler beim Laden</div>'}
+}
 
 function catOrd(c){const l=c.toLowerCase();if(l==='tram'||l==='t')return 1;if(l==='bus'||l==='b'||l==='nfb')return 2;if(['s','ir','ic','ice','r','re'].includes(l))return 3;return 4}
 
@@ -195,6 +297,7 @@ function catLabel(c){const l=c.toLowerCase();if(l==='tram'||l==='t')return'Tram'
 document.getElementById('selectAll').addEventListener('click',()=>{enabledLines=new Set(allLines.map(l=>l.key));renderFilters();updateURL();refreshDepartures()});
 document.getElementById('selectNone').addEventListener('click',()=>{enabledLines.clear();renderFilters();updateURL();refreshDepartures()});
 
+// ── Departures ──
 function startRefresh(){document.getElementById('departuresSection').classList.add('show');document.getElementById('footerBar').classList.add('show');refreshDepartures();countdown=30;if(refreshInterval)clearInterval(refreshInterval);refreshInterval=setInterval(()=>{countdown--;document.getElementById('refreshTimer').textContent=countdown;if(countdown<=0){countdown=30;refreshDepartures()}},1000)}
 function stopRefresh(){if(refreshInterval)clearInterval(refreshInterval);refreshInterval=null;document.getElementById('departuresSection').classList.remove('show');document.getElementById('footerBar').classList.remove('show')}
 
@@ -205,7 +308,18 @@ function renderDepartures(entries){const list=document.getElementById('departure
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function escA(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;')}
 
-;(async()=>{const state=parseURL();if(!state)return;if(state.monitorMode)document.body.classList.add('monitor-mode');currentStation={id:state.stopId,name:state.stopName};document.getElementById('stationBar').classList.add('show');document.getElementById('stationName').textContent=state.stopName;document.getElementById('searchSection').style.display='none';await discoverLines();if(state.lines){enabledLines=new Set(state.lines.filter(l=>allLines.some(al=>al.key===l)));renderFilters();refreshDepartures()}})();
+// ── Init from Hash ──
+;(async()=>{
+  const state=parseHash();
+  if(!state)return;
+  if(state.monitorMode)document.body.classList.add('monitor-mode');
+  currentStation={id:state.stopId,name:state.stopName};
+  document.getElementById('stationBar').classList.add('show');
+  document.getElementById('stationName').textContent=state.stopName;
+  document.getElementById('searchSection').style.display='none';
+  // Pass URL lines to discoverLines so they are applied AFTER lines are loaded
+  await discoverLines(state.lines);
+})();
 </script>
 </body>
 </html>
