@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Abfahrtsmonitor</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚍</text></svg>">
 <style>
   :root {
     --sbb-blue: #2d327d;
@@ -48,6 +47,7 @@
   .station-name { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
   .station-bar .change-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; color: var(--sbb-white); font-size: 12px; padding: 5px 12px; cursor: pointer; font-family: var(--font); font-weight: 500; transition: all 0.15s; }
   .station-bar .change-btn:hover { background: rgba(255,255,255,0.18); }
+  .station-actions { display: flex; gap: 6px; }
 
   .filter-panel { background: var(--sbb-blue-dark); padding: 14px 20px; display: none; border-bottom: 1px solid var(--sbb-border); }
   .filter-panel.show { display: block; }
@@ -136,7 +136,10 @@
 
   <div class="station-bar" id="stationBar">
     <span class="station-name" id="stationName"></span>
-    <button class="change-btn" id="changeBtn">Ändern</button>
+    <div class="station-actions">
+      <button class="change-btn" id="filterToggleBtn" style="display:none">Filter</button>
+      <button class="change-btn" id="changeBtn">Ändern</button>
+    </div>
   </div>
 
   <div class="filter-panel" id="filterPanel">
@@ -286,6 +289,7 @@ async function discoverLines(urlLines){
 
     renderFilters();
     updateURL();
+    document.getElementById('filterToggleBtn').style.display='';
     startRefresh();
   }catch(e){fl.innerHTML='<div class="state-message">Fehler beim Laden</div>'}
 }
@@ -309,6 +313,15 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 function escA(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;')}
 
 // ── Init from Hash ──
+let filterCollapsed=false;
+
+document.getElementById('filterToggleBtn').addEventListener('click',()=>{
+  const panel=document.getElementById('filterPanel');
+  filterCollapsed=!filterCollapsed;
+  panel.classList.toggle('show',!filterCollapsed);
+  document.getElementById('filterToggleBtn').textContent=filterCollapsed?'Filter':'Filter ✕';
+});
+
 ;(async()=>{
   const state=parseHash();
   if(!state)return;
@@ -317,8 +330,19 @@ function escA(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/
   document.getElementById('stationBar').classList.add('show');
   document.getElementById('stationName').textContent=state.stopName;
   document.getElementById('searchSection').style.display='none';
-  // Pass URL lines to discoverLines so they are applied AFTER lines are loaded
+
+  // If URL has line filters, start with panel collapsed
+  if(state.lines){
+    filterCollapsed=true;
+    document.getElementById('filterToggleBtn').style.display='';
+  }
+
   await discoverLines(state.lines);
+
+  // Hide filter panel after lines loaded if we have URL filters
+  if(state.lines){
+    document.getElementById('filterPanel').classList.remove('show');
+  }
 })();
 </script>
 </body>
