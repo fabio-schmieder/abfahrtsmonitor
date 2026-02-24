@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Abfahrtsmonitor</title>
+<style>
+  :root {
+    --sbb-blue: #2d327d;
+    --sbb-blue-dark: #1e2259;
+    --sbb-blue-deeper: #161a45;
+    --sbb-blue-light: #3a4099;
+    --sbb-red: #eb0000;
+    --sbb-white: #ffffff;
+    --sbb-yellow: #ffcc00;
+    --sbb-yellow-soft: #ffd633;
+    --sbb-grey-light: #c8c8d0;
+    --sbb-grey-dim: #8888a0;
+    --sbb-row-odd: rgba(255,255,255,0.03);
+    --sbb-border: rgba(255,255,255,0.08);
+    --sbb-border-light: rgba(255,255,255,0.12);
+    --font: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--sbb-blue-deeper); color: var(--sbb-white); font-family: var(--font); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  .app { max-width: 700px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+
+  .header { background: var(--sbb-red); padding: 12px 20px; display: flex; align-items: center; gap: 12px; }
+  .header-logo { font-weight: 700; font-size: 18px; letter-spacing: 0.04em; }
+  .header-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.4); }
+  .header-subtitle { font-size: 13px; font-weight: 500; opacity: 0.9; letter-spacing: 0.02em; }
+
+  .search-section { background: var(--sbb-blue-dark); padding: 16px 20px; position: relative; }
+  .search-wrap { position: relative; }
+  .search-input { width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 10px 14px 10px 38px; color: var(--sbb-white); font-family: var(--font); font-size: 15px; outline: none; transition: all 0.15s; }
+  .search-input:focus { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.35); }
+  .search-input::placeholder { color: var(--sbb-grey-dim); }
+  .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--sbb-grey-dim); pointer-events: none; }
+  .search-results { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--sbb-blue-dark); border: 1px solid var(--sbb-border-light); border-radius: 4px; overflow: hidden; z-index: 100; display: none; box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+  .search-results.show { display: block; }
+  .search-result { padding: 10px 14px; cursor: pointer; font-size: 14px; transition: background 0.1s; border-bottom: 1px solid var(--sbb-border); }
+  .search-result:last-child { border-bottom: none; }
+  .search-result:hover { background: var(--sbb-blue-light); }
+
+  .station-bar { background: var(--sbb-blue); padding: 14px 20px; display: none; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--sbb-border-light); }
+  .station-bar.show { display: flex; }
+  .station-name { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .station-bar .change-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 3px; color: var(--sbb-white); font-size: 12px; padding: 5px 12px; cursor: pointer; font-family: var(--font); font-weight: 500; transition: all 0.15s; }
+  .station-bar .change-btn:hover { background: rgba(255,255,255,0.18); }
+
+  .filter-panel { background: var(--sbb-blue-dark); padding: 14px 20px; display: none; border-bottom: 1px solid var(--sbb-border); }
+  .filter-panel.show { display: block; }
+  .filter-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .filter-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--sbb-grey-dim); }
+  .filter-actions { display: flex; gap: 6px; }
+  .filter-actions button { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 3px; color: var(--sbb-grey-light); font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: var(--font); font-weight: 500; transition: all 0.15s; }
+  .filter-actions button:hover { background: rgba(255,255,255,0.14); color: var(--sbb-white); }
+  .filter-list { display: flex; flex-direction: column; gap: 1px; }
+  .filter-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 4px; cursor: pointer; transition: background 0.1s; user-select: none; }
+  .filter-item:hover { background: rgba(255,255,255,0.06); }
+  .filter-item.disabled { opacity: 0.3; }
+  .filter-toggle { width: 18px; height: 18px; border-radius: 3px; border: 2px solid rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+  .filter-item:not(.disabled) .filter-toggle { border-color: var(--sbb-yellow); background: var(--sbb-yellow); }
+  .filter-toggle svg { opacity: 0; transition: opacity 0.1s; }
+  .filter-item:not(.disabled) .filter-toggle svg { opacity: 1; }
+  .filter-line-num { font-weight: 700; font-size: 13px; min-width: 32px; }
+  .filter-arrow { color: var(--sbb-grey-dim); font-size: 11px; }
+  .filter-dest { font-size: 13px; color: var(--sbb-grey-light); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .filter-cat { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--sbb-grey-dim); flex-shrink: 0; }
+
+  .departures-section { flex: 1; background: var(--sbb-blue); display: none; flex-direction: column; }
+  .departures-section.show { display: flex; }
+  .table-header { display: grid; grid-template-columns: 56px 1fr 68px; padding: 8px 20px; background: var(--sbb-blue-dark); border-bottom: 2px solid var(--sbb-white); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--sbb-grey-light); }
+  .table-header span:last-child { text-align: right; }
+  .departure-list { flex: 1; overflow-y: auto; }
+  .dep-row { display: grid; grid-template-columns: 56px 1fr 68px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--sbb-border); animation: rowFade 0.25s ease; }
+  .dep-row:nth-child(odd) { background: var(--sbb-row-odd); }
+  @keyframes rowFade { from { opacity: 0; } to { opacity: 1; } }
+  .dep-line { font-weight: 700; font-size: 13px; letter-spacing: 0.02em; background: var(--sbb-white); color: #000; padding: 2px 6px; border-radius: 3px; text-align: center; display: inline-block; min-width: 32px; }
+  .dep-dest { font-size: 15px; font-weight: 500; padding-left: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dep-time-col { text-align: right; line-height: 1.3; }
+  .dep-min { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .dep-min.now { animation: blink 1.2s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0.4; } }
+  .dep-clock { font-size: 11px; color: var(--sbb-grey-dim); font-variant-numeric: tabular-nums; }
+  .dep-delay { color: var(--sbb-yellow); font-weight: 700; font-size: 11px; }
+
+  .footer-bar { background: var(--sbb-blue-dark); padding: 8px 20px; display: none; align-items: center; justify-content: space-between; font-size: 11px; color: var(--sbb-grey-dim); border-top: 1px solid var(--sbb-border); }
+  .footer-bar.show { display: flex; }
+  .refresh-info { display: flex; align-items: center; gap: 6px; }
+  .refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--sbb-yellow); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+  .url-hint { background: var(--sbb-blue-dark); padding: 12px 20px; display: none; align-items: center; gap: 10px; font-size: 12px; color: var(--sbb-grey-dim); border-top: 1px solid var(--sbb-border); }
+  .url-hint.show { display: flex; }
+  .url-hint-text { flex: 1; min-width: 0; }
+  .url-hint a { color: var(--sbb-yellow); text-decoration: none; word-break: break-all; font-size: 11px; }
+  .copy-btn { background: rgba(255,204,0,0.1); border: 1px solid rgba(255,204,0,0.3); border-radius: 3px; color: var(--sbb-yellow); font-size: 11px; padding: 4px 10px; cursor: pointer; font-family: var(--font); font-weight: 600; white-space: nowrap; transition: all 0.15s; flex-shrink: 0; }
+  .copy-btn:hover { background: rgba(255,204,0,0.18); }
+
+  .state-message { text-align: center; padding: 40px 20px; color: var(--sbb-grey-dim); font-size: 14px; }
+  .loading-spinner { width: 20px; height: 20px; border: 2px solid var(--sbb-border); border-top-color: var(--sbb-yellow); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .edit-link { display: none; font-size: 11px; color: var(--sbb-grey-dim); text-decoration: none; text-align: center; padding: 10px; background: var(--sbb-blue-dark); }
+  body.monitor-mode .edit-link { display: block; }
+  .edit-link:hover { color: var(--sbb-grey-light); }
+  body.monitor-mode .search-section, body.monitor-mode .filter-panel, body.monitor-mode .url-hint { display: none !important; }
+  body.monitor-mode .station-bar .change-btn { display: none; }
+
+  @media (max-width: 480px) {
+    .station-name { font-size: 17px; }
+    .table-header, .dep-row { padding-left: 14px; padding-right: 14px; grid-template-columns: 48px 1fr 60px; }
+    .dep-row:first-child { padding-left: 11px; }
+    .dep-line { font-size: 14px; }
+    .dep-dest { font-size: 14px; padding-left: 8px; }
+    .dep-min { font-size: 16px; }
+    .header, .search-section, .filter-panel, .station-bar, .footer-bar, .url-hint { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <span class="header-logo">Abfahrtsmonitor</span>
+  </div>
+
+  <div class="search-section" id="searchSection">
+    <div class="search-wrap">
+      <div class="search-icon"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+      <input type="text" class="search-input" id="searchInput" placeholder="Haltestelle suchen..." autocomplete="off">
+      <div class="search-results" id="searchResults"></div>
+    </div>
+  </div>
+
+  <div class="station-bar" id="stationBar">
+    <span class="station-name" id="stationName"></span>
+    <button class="change-btn" id="changeBtn">Ändern</button>
+  </div>
+
+  <div class="filter-panel" id="filterPanel">
+    <div class="filter-header">
+      <span class="filter-title">Linien &amp; Richtungen</span>
+      <div class="filter-actions"><button id="selectAll">Alle</button><button id="selectNone">Keine</button></div>
+    </div>
+    <div class="filter-list" id="filterList"></div>
+  </div>
+
+  <div class="departures-section" id="departuresSection">
+    <div class="table-header"><span>Linie</span><span style="padding-left:12px">Richtung</span><span>Min</span></div>
+    <div class="departure-list" id="departureList"></div>
+  </div>
+
+  <div class="footer-bar" id="footerBar">
+    <div class="refresh-info"><div class="refresh-dot"></div><span>Aktualisierung in <span id="refreshTimer">30</span>s</span></div>
+    <span id="lastUpdate"></span>
+  </div>
+
+  <div class="url-hint" id="urlHint">
+    <div class="url-hint-text">Bookmark-Link (Monitor-Ansicht):<br><a href="#" id="urlLink"></a></div>
+    <button class="copy-btn" id="copyBtn">Kopieren</button>
+  </div>
+
+  <a href="#" class="edit-link" id="editLink">✎ Filter bearbeiten</a>
+</div>
+
+<script>
+const API='https://transport.opendata.ch/v1';
+let currentStation=null,allLines=[],enabledLines=new Set(),refreshInterval=null,searchTimeout=null,countdown=30;
+
+function parseURL(){const p=new URLSearchParams(location.search),s=p.get('stop');if(!s)return null;return{stopId:s,stopName:p.get('name')||s,lines:p.get('lines')?p.get('lines').split(',').map(decodeURIComponent):null,monitorMode:p.get('mode')==='monitor'}}
+function updateURL(){if(!currentStation)return;const p=new URLSearchParams();p.set('stop',currentStation.id);p.set('name',currentStation.name);if(enabledLines.size>0&&enabledLines.size<allLines.length)p.set('lines',Array.from(enabledLines).map(encodeURIComponent).join(','));const u=location.origin+location.pathname+'?'+p;history.replaceState({},'',u);showURLHint(u)}
+function showURLHint(u){const m=u+'&mode=monitor',l=document.getElementById('urlLink');l.href=m;l.textContent=m.length>90?m.substring(0,87)+'...':m;document.getElementById('urlHint').classList.add('show');document.getElementById('editLink').href=u}
+document.getElementById('copyBtn').addEventListener('click',()=>{navigator.clipboard.writeText(document.getElementById('urlLink').href).then(()=>{const b=document.getElementById('copyBtn');b.textContent='✓ Kopiert';setTimeout(()=>b.textContent='Kopieren',2000)})});
+
+const searchInput=document.getElementById('searchInput'),searchResults=document.getElementById('searchResults');
+searchInput.addEventListener('input',()=>{clearTimeout(searchTimeout);const q=searchInput.value.trim();if(q.length<2){searchResults.classList.remove('show');return}searchTimeout=setTimeout(()=>fetchLoc(q),250)});
+searchInput.addEventListener('focus',()=>{if(searchResults.children.length)searchResults.classList.add('show')});
+document.addEventListener('click',e=>{if(!e.target.closest('.search-section'))searchResults.classList.remove('show')});
+
+async function fetchLoc(q){try{const r=await fetch(`${API}/locations?query=${encodeURIComponent(q)}&type=station`),d=await r.json();const s=(d.stations||[]).slice(0,8);searchResults.innerHTML=s.map(s=>`<div class="search-result" data-id="${s.id}" data-name="${esc(s.name)}">${esc(s.name)}</div>`).join('');searchResults.querySelectorAll('.search-result').forEach(el=>{el.addEventListener('click',()=>selectStation(el.dataset.id,el.dataset.name))});searchResults.classList.toggle('show',s.length>0)}catch(e){console.error(e)}}
+
+async function selectStation(id,name){currentStation={id,name};searchResults.classList.remove('show');searchInput.value='';document.getElementById('stationBar').classList.add('show');document.getElementById('stationName').textContent=name;document.getElementById('searchSection').style.display='none';await discoverLines()}
+document.getElementById('changeBtn').addEventListener('click',()=>{stopRefresh();currentStation=null;allLines=[];enabledLines.clear();document.getElementById('stationBar').classList.remove('show');document.getElementById('searchSection').style.display='';document.getElementById('filterPanel').classList.remove('show');document.getElementById('departuresSection').classList.remove('show');document.getElementById('footerBar').classList.remove('show');document.getElementById('urlHint').classList.remove('show');searchInput.focus();history.replaceState({},'',location.pathname)});
+
+async function discoverLines(){const fl=document.getElementById('filterList');fl.innerHTML='<div class="state-message"><div class="loading-spinner"></div>Linien werden geladen...</div>';document.getElementById('filterPanel').classList.add('show');try{const r=await fetch(`${API}/stationboard?id=${currentStation.id}&limit=40`),d=await r.json(),map=new Map();(d.stationboard||[]).forEach(e=>{const cat=(e.category||'?').toLowerCase(),num=e.number||'',to=e.to||'?',key=`${cat}${num}-${to}`;if(!map.has(key))map.set(key,{key,category:e.category||'?',number:num,to})});allLines=Array.from(map.values()).sort((a,b)=>{const c=catOrd(a.category)-catOrd(b.category);if(c)return c;const na=parseInt(a.number)||999,nb=parseInt(b.number)||999;if(na!==nb)return na-nb;return a.to.localeCompare(b.to)});const us=parseURL();enabledLines=us?.lines?new Set(us.lines.filter(l=>allLines.some(al=>al.key===l))):new Set(allLines.map(l=>l.key));renderFilters();updateURL();startRefresh()}catch(e){fl.innerHTML='<div class="state-message">Fehler beim Laden</div>'}}
+
+function catOrd(c){const l=c.toLowerCase();if(l==='tram'||l==='t')return 1;if(l==='bus'||l==='b'||l==='nfb')return 2;if(['s','ir','ic','ice','r','re'].includes(l))return 3;return 4}
+
+function renderFilters(){const fl=document.getElementById('filterList');if(!allLines.length){fl.innerHTML='<div class="state-message">Keine Linien gefunden</div>';return}fl.innerHTML=allLines.map(l=>{const dis=!enabledLines.has(l.key);return`<div class="filter-item ${dis?'disabled':''}" data-key="${escA(l.key)}"><div class="filter-toggle"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="#1e2259" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="filter-line-num">${esc(l.number)}</span><span class="filter-arrow">→</span><span class="filter-dest">${esc(l.to)}</span><span class="filter-cat">${catLabel(l.category)}</span></div>`}).join('');fl.querySelectorAll('.filter-item').forEach(el=>{el.addEventListener('click',()=>{const k=el.dataset.key;if(enabledLines.has(k)){enabledLines.delete(k);el.classList.add('disabled')}else{enabledLines.add(k);el.classList.remove('disabled')}updateURL();refreshDepartures()})})}
+function catLabel(c){const l=c.toLowerCase();if(l==='tram'||l==='t')return'Tram';if(l==='bus'||l==='b'||l==='nfb')return'Bus';if(l==='s')return'S-Bahn';return c.toUpperCase()}
+document.getElementById('selectAll').addEventListener('click',()=>{enabledLines=new Set(allLines.map(l=>l.key));renderFilters();updateURL();refreshDepartures()});
+document.getElementById('selectNone').addEventListener('click',()=>{enabledLines.clear();renderFilters();updateURL();refreshDepartures()});
+
+function startRefresh(){document.getElementById('departuresSection').classList.add('show');document.getElementById('footerBar').classList.add('show');refreshDepartures();countdown=30;if(refreshInterval)clearInterval(refreshInterval);refreshInterval=setInterval(()=>{countdown--;document.getElementById('refreshTimer').textContent=countdown;if(countdown<=0){countdown=30;refreshDepartures()}},1000)}
+function stopRefresh(){if(refreshInterval)clearInterval(refreshInterval);refreshInterval=null;document.getElementById('departuresSection').classList.remove('show');document.getElementById('footerBar').classList.remove('show')}
+
+async function refreshDepartures(){if(!currentStation)return;try{const r=await fetch(`${API}/stationboard?id=${currentStation.id}&limit=30`),d=await r.json();renderDepartures(d.stationboard||[]);countdown=30;document.getElementById('refreshTimer').textContent='30';document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}catch(e){console.error(e)}}
+
+function renderDepartures(entries){const list=document.getElementById('departureList'),filtered=entries.filter(e=>{const key=`${(e.category||'?').toLowerCase()}${e.number||''}-${e.to||'?'}`;return enabledLines.has(key)});if(!filtered.length){list.innerHTML='<div class="state-message">Keine Abfahrten</div>';return}list.innerHTML=filtered.slice(0,25).map((e,i)=>{const dep=e.stop?.departure?new Date(e.stop.departure):null,prog=e.stop?.prognosis?.departure?new Date(e.stop.prognosis.departure):null,actual=prog||dep,now=new Date();let minText='',minClass='';if(actual){const diff=Math.round((actual-now)/60000);if(diff<=0){minText="0'";minClass='now'}else if(diff<=3){minText=diff+"'";minClass='soon'}else{minText=diff+"'"}}const timeStr=dep?dep.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}):'';const delay=dep&&prog?Math.round((prog-dep)/60000):0;return`<div class="dep-row"><div class="dep-line">${esc(e.number||e.category||'')}</div><div class="dep-dest">${esc(e.to||'')}</div><div class="dep-time-col"><div class="dep-min ${minClass}">${minText}</div><div class="dep-clock">${timeStr}${delay>0?` <span class="dep-delay">+${delay}</span>`:''}</div></div></div>`}).join('')}
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function escA(s){return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;')}
+
+;(async()=>{const state=parseURL();if(!state)return;if(state.monitorMode)document.body.classList.add('monitor-mode');currentStation={id:state.stopId,name:state.stopName};document.getElementById('stationBar').classList.add('show');document.getElementById('stationName').textContent=state.stopName;document.getElementById('searchSection').style.display='none';await discoverLines();if(state.lines){enabledLines=new Set(state.lines.filter(l=>allLines.some(al=>al.key===l)));renderFilters();refreshDepartures()}})();
+</script>
+</body>
+</html>
